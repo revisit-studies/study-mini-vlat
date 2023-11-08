@@ -1,0 +1,202 @@
+---
+title: "vlattest"
+format: html
+editor: visual
+---
+
+```{r}
+
+library(tidyverse)
+library(stringr)
+df <- read.csv("Visualization_understanding questionnaire.csv")
+
+df %>% 
+  filter(str_detect(trialId, "q\\d+")) %>% 
+  mutate(correctness = if_else(answer == correctAnswer, "correct", "incorrect")) %>% 
+  group_by(trialId, correctness) %>%
+  summarise(count = n(), .groups = 'drop') %>% 
+  ggplot(aes(x = reorder(trialId, -count), y = count, fill = correctness)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +  # Make the bar chart horizontal
+  scale_fill_manual(values = c("correct" = "#E7CB94", "incorrect" = "#9E9AC8")) +  # Tableau colors
+  labs(x = "Question", y = "Number of Answers", fill = "Correctness") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+
+
+
+
+df_summary <- df %>%
+  filter(str_detect(trialId, "q\\d+")) %>% 
+  mutate(correct = if_else(answer == correctAnswer, "correct", "incorrect")) %>% 
+  group_by(trialId, correct) %>%
+  summarise(count = n()) %>%
+  mutate(proportion = count / sum(count)) %>%
+  ungroup()
+
+# Create the plot
+ggplot(df_summary, aes(x = trialId, y = proportion, fill = as.factor(correct))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ trialId) +
+  scale_fill_manual(values = c("#FF7F0E", "#9467BD"), labels = c("Incorrect", "Correct")) +
+  labs(y = "Proportion", x = "Question", fill = "Answer") +
+  theme_minimal()
+  
+```
+
+```{r}
+
+# Define your desired order
+question_order <- c("q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12") # ... and so on for all your questions
+
+
+proportions_df <- df %>%
+  filter(str_detect(trialId, "q\\d+")) %>% 
+  group_by(trialId) %>%
+  mutate(trialId = factor(trialId, levels = rev(question_order))) %>% # Set the factor with the desired level order
+  group_by(trialId) %>% 
+  mutate(correct = if_else(answer == correctAnswer, 1, 0)) %>% 
+  summarise(
+    Correct = sum(correct == 1),
+    Incorrect = sum(correct == 0)
+  ) %>%
+  mutate(Total = Correct + Incorrect) %>%
+  mutate(Prop_Correct = Correct / Total,
+         Prop_Incorrect = Incorrect / Total) %>%
+  select(trialId, Prop_Correct, Prop_Incorrect)
+
+
+# Reshape for stacking in ggplot
+proportions_long <- proportions_df %>%
+  pivot_longer(cols = c("Prop_Correct", "Prop_Incorrect"), names_to = "Accuracy", values_to = "Proportion")
+
+
+
+
+
+# Plot the horizontal stacked bar chart
+ggplot(proportions_long, aes(x = trialId, y = Proportion, fill = Accuracy)) +
+  geom_bar(stat = "identity") +
+  coord_flip() + # This makes the bar chart horizontal
+  scale_fill_manual(values = c("Prop_Correct" = "#FF7F0E", "Prop_Incorrect" = "#9467BD")) +
+   labs(
+    title = "Mini-VLAT Pilot Correctness Proportion",
+    subtitle = "Aggregated Across All Participants",
+    x = "Question",
+    y = "Proportion",
+    fill = "Accuracy"
+  ) +
+  theme_minimal()
+```
+
+### Make a trial key
+
+```{r}
+questions <- df %>%
+  filter(str_detect(trialId, "q\\d+"))
+
+print(questions[, c("trialId", "instruction")])
+
+```
+
+### Ok now let's look at participants:
+
+```{r}
+participant_summary <- df %>%
+  filter(str_detect(trialId, "q\\d+")) %>% 
+  mutate(pid_short = substr(pid, 1, 7)) %>%  # Shorten the pid column
+  mutate(correct = if_else(answer == correctAnswer, 1, 0)) %>% 
+  group_by(pid_short) %>%
+  summarize(
+    Correct = sum(correct == TRUE),
+    Incorrect = sum(correct == FALSE)
+  ) %>%
+  pivot_longer(cols = c(Correct, Incorrect), names_to = "Accuracy", values_to = "Count")  # Reshape to long format
+
+library(forcats) # for fct_relevel
+
+
+participant_summary$Accuracy <- fct_relevel(participant_summary$Accuracy, "Incorrect", "Correct")
+
+# Calculate label positions for 'Correct' values
+label_positions <- participant_summary %>%
+  filter(Accuracy == "Correct") %>%
+  mutate(label_pos = Count)
+
+# Merge label positions back with the main data frame
+participant_summary <- participant_summary %>%
+  left_join(label_positions[, c('pid_short', 'label_pos')], by = 'pid_short')
+
+
+# Plot with ggplot
+ggplot(participant_summary, aes(x = pid_short, y = Count, fill = Accuracy)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = ifelse(Accuracy == "Correct", as.character(Count), ""), 
+                y = label_pos), position = position_stack(vjust = 1.05)) +
+  coord_flip() +
+  scale_fill_manual(values = c("Correct" = "#FF7F0E", "Incorrect" = "#9467BD")) +
+  scale_y_continuous(breaks = seq(0, 12, 1), limits = c(0, 12)) + # Setting y-axis breaks to whole numbers and limit to 12
+  labs(
+    x = "Participant ID",
+    y = "Number of Answers",
+    fill = "Accuracy",
+    title = "Number of Correct/Incorrect Answers per Participant",
+    subtitle = "Each participant's ID is shortened to the first 7 characters"
+  ) +
+  theme_minimal()
+```
+
+### Making a table of survey responses
+
+```{r}
+library(gt)
+library(webshot)
+
+# Assuming your dataframe is named df
+# Filter entries that contain "survey"
+survey_df <- df %>% 
+  filter(grepl("survey", trialId)) %>%
+  mutate(pid_short = substr(pid, 1, 7)) # Shorten participant ID
+
+# Reshape the data to wide format
+wide_survey_df <- survey_df %>%
+  pivot_wider(
+    names_from = measure, 
+    values_from = answer,
+    id_cols = pid_short
+  )
+
+# Create the table with gt
+stylish_table <- wide_survey_df %>% 
+  gt() %>%
+  tab_header(
+    title = "Survey Responses by Participant"
+  ) %>%
+  cols_label(
+    pid_short = "Participant ID"
+    # Add custom labels for your survey columns if needed
+  ) %>%
+  tab_options(
+    column_labels.font.size = px(12),
+    heading.title.font.size = px(16)
+  ) %>%
+  tab_style(
+    style = cell_borders(sides = "top", color = "gray", weight = px(2)),
+    locations = cells_column_labels(columns = TRUE)
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightgray"),
+    locations = cells_column_labels(columns = TRUE)
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels(columns = TRUE)
+  )
+
+# Display the table
+print(stylish_table)
+
+gt::gtsave(stylish_table, filename = "table.png")
+
+```
