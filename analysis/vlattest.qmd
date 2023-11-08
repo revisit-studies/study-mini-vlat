@@ -1,49 +1,29 @@
 ---
-title: "vlattest"
+title: "Mini VLAT Pilot Analysis"
 format: html
 editor: visual
 ---
 
-```{r}
+### Intro
 
+Just a quick analysis of our replication of the Mini-VLAT.
+
+### Setup / Loading
+
+```{r}
 library(tidyverse)
 library(stringr)
+library(forcats) # for fct_relevel
+library(gt)
+library(webshot)
+
+
 df <- read.csv("Visualization_understanding questionnaire.csv")
 
-df %>% 
-  filter(str_detect(trialId, "q\\d+")) %>% 
-  mutate(correctness = if_else(answer == correctAnswer, "correct", "incorrect")) %>% 
-  group_by(trialId, correctness) %>%
-  summarise(count = n(), .groups = 'drop') %>% 
-  ggplot(aes(x = reorder(trialId, -count), y = count, fill = correctness)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  coord_flip() +  # Make the bar chart horizontal
-  scale_fill_manual(values = c("correct" = "#E7CB94", "incorrect" = "#9E9AC8")) +  # Tableau colors
-  labs(x = "Question", y = "Number of Answers", fill = "Correctness") +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-
-
-
-
-
-df_summary <- df %>%
-  filter(str_detect(trialId, "q\\d+")) %>% 
-  mutate(correct = if_else(answer == correctAnswer, "correct", "incorrect")) %>% 
-  group_by(trialId, correct) %>%
-  summarise(count = n()) %>%
-  mutate(proportion = count / sum(count)) %>%
-  ungroup()
-
-# Create the plot
-ggplot(df_summary, aes(x = trialId, y = proportion, fill = as.factor(correct))) +
-  geom_bar(stat = "identity", position = "dodge") +
-  facet_wrap(~ trialId) +
-  scale_fill_manual(values = c("#FF7F0E", "#9467BD"), labels = c("Incorrect", "Correct")) +
-  labs(y = "Proportion", x = "Question", fill = "Answer") +
-  theme_minimal()
   
 ```
+
+### Per-question Correctness Plot
 
 ```{r}
 
@@ -72,9 +52,6 @@ proportions_long <- proportions_df %>%
   pivot_longer(cols = c("Prop_Correct", "Prop_Incorrect"), names_to = "Accuracy", values_to = "Proportion")
 
 
-
-
-
 # Plot the horizontal stacked bar chart
 ggplot(proportions_long, aes(x = trialId, y = Proportion, fill = Accuracy)) +
   geom_bar(stat = "identity") +
@@ -90,7 +67,7 @@ ggplot(proportions_long, aes(x = trialId, y = Proportion, fill = Accuracy)) +
   theme_minimal()
 ```
 
-### Make a trial key
+### Trial Text Key
 
 ```{r}
 questions <- df %>%
@@ -100,7 +77,7 @@ print(questions[, c("trialId", "instruction")])
 
 ```
 
-### Ok now let's look at participants:
+### Participant Correctness
 
 ```{r}
 participant_summary <- df %>%
@@ -113,9 +90,6 @@ participant_summary <- df %>%
     Incorrect = sum(correct == FALSE)
   ) %>%
   pivot_longer(cols = c(Correct, Incorrect), names_to = "Accuracy", values_to = "Count")  # Reshape to long format
-
-library(forcats) # for fct_relevel
-
 
 participant_summary$Accuracy <- fct_relevel(participant_summary$Accuracy, "Incorrect", "Correct")
 
@@ -147,11 +121,10 @@ ggplot(participant_summary, aes(x = pid_short, y = Count, fill = Accuracy)) +
   theme_minimal()
 ```
 
-### Making a table of survey responses
+### Comments Table
 
 ```{r}
-library(gt)
-library(webshot)
+
 
 # Assuming your dataframe is named df
 # Filter entries that contain "survey"
